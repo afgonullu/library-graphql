@@ -1,0 +1,23 @@
+{
+  "name": "library-graphql",
+  "version": "1.0.0",
+  "description": "FSO Part 8 GraphQL Experimentation",
+  "main": "library-backend.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/afgonullu/library-graphql.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/afgonullu/library-graphql/issues"
+  },
+  "homepage": "https://github.com/afgonullu/library-graphql#readme",
+  "dependencies": {
+    "apollo-server": "^2.19.0",
+    "graphql": "^15.4.0"
+  }
+}
