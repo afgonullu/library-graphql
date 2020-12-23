@@ -1,103 +1,54 @@
-const { ApolloServer, gql } = require("apollo-server")
+const { ApolloServer, UserInputError, gql } = require("apollo-server")
+const mongoose = require("mongoose")
+const Book = require("./models/Book")
+const Author = require("./models/Author")
+const User = require("./models/User")
 const { isNullableType } = require("graphql")
+const { argsToArgsConfig } = require("graphql/type/definition")
+const jwt = require("jsonwebtoken")
 
-let authors = [
-  {
-    name: "Robert Martin",
-    id: "afa51ab0-344d-11e9-a414-719c6709cf3e",
-    born: 1952,
-  },
-  {
-    name: "Martin Fowler",
-    id: "afa5b6f0-344d-11e9-a414-719c6709cf3e",
-    born: 1963,
-  },
-  {
-    name: "Fyodor Dostoevsky",
-    id: "afa5b6f1-344d-11e9-a414-719c6709cf3e",
-    born: 1821,
-  },
-  {
-    name: "Joshua Kerievsky", // birthyear not known
-    id: "afa5b6f2-344d-11e9-a414-719c6709cf3e",
-  },
-  {
-    name: "Sandi Metz", // birthyear not known
-    id: "afa5b6f3-344d-11e9-a414-719c6709cf3e",
-  },
-]
+const JWT_SECRET = "FULLSTACKOPEN"
 
-/*
- * Saattaisi olla järkevämpää assosioida kirja ja sen tekijä tallettamalla kirjan yhteyteen tekijän nimen sijaan tekijän id
- * Yksinkertaisuuden vuoksi tallennamme kuitenkin kirjan yhteyteen tekijän nimen
- */
+const MONGODB_URI =
+  "mongodb+srv://afg:WwIsDp6NUvygqwS4@fcc-cluster.wedxo.mongodb.net/library-app?retryWrites=true&w=majority"
 
-let books = [
-  {
-    title: "Clean Code",
-    published: 2008,
-    author: "Robert Martin",
-    id: "afa5b6f4-344d-11e9-a414-719c6709cf3e",
-    genres: ["refactoring"],
-  },
-  {
-    title: "Agile software development",
-    published: 2002,
-    author: "Robert Martin",
-    id: "afa5b6f5-344d-11e9-a414-719c6709cf3e",
-    genres: ["agile", "patterns", "design"],
-  },
-  {
-    title: "Refactoring, edition 2",
-    published: 2018,
-    author: "Martin Fowler",
-    id: "afa5de00-344d-11e9-a414-719c6709cf3e",
-    genres: ["refactoring"],
-  },
-  {
-    title: "Refactoring to patterns",
-    published: 2008,
-    author: "Joshua Kerievsky",
-    id: "afa5de01-344d-11e9-a414-719c6709cf3e",
-    genres: ["refactoring", "patterns"],
-  },
-  {
-    title: "Practical Object-Oriented Design, An Agile Primer Using Ruby",
-    published: 2012,
-    author: "Sandi Metz",
-    id: "afa5de02-344d-11e9-a414-719c6709cf3e",
-    genres: ["refactoring", "design"],
-  },
-  {
-    title: "Crime and punishment",
-    published: 1866,
-    author: "Fyodor Dostoevsky",
-    id: "afa5de03-344d-11e9-a414-719c6709cf3e",
-    genres: ["classic", "crime"],
-  },
-  {
-    title: "The Demon ",
-    published: 1872,
-    author: "Fyodor Dostoevsky",
-    id: "afa5de04-344d-11e9-a414-719c6709cf3e",
-    genres: ["classic", "revolution"],
-  },
-]
+mongoose
+  .connect(MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    useFindAndModify: false,
+    useCreateIndex: true,
+  })
+  .then(() => {
+    console.log("connected to MongoDB")
+  })
+  .catch((error) => {
+    console.log("error connection to MongoDB:", error.message)
+  })
 
 const typeDefs = gql`
   type Book {
     title: String!
-    author: String!
+    author: Author!
     genres: [String!]!
     published: Int!
     id: ID!
   }
 
   type Author {
-    name: String
+    name: String!
     born: Int
-    books: [Book]
     bookCount: Int
+  }
+
+  type User {
+    username: String!
+    favoriteGenre: String!
+    id: ID!
+  }
+
+  type Token {
+    value: String!
   }
 
   type Query {
@@ -105,6 +56,7 @@ const typeDefs = gql`
     authorCount: Int!
     allBooks(author: String, genre: String): [Book!]!
     allAuthors: [Author]
+    me: User
   }
 
   type Mutation {
@@ -115,65 +67,102 @@ const typeDefs = gql`
       genres: [String!]!
     ): Book
     editAuthor(name: String!, setBornTo: Int!): Author
+    createUser(username: String!, favoriteGenre: String!): User
+    login(username: String!, password: String!): Token
   }
 `
 
-const { v1: uuid } = require("uuid")
-
 const resolvers = {
   Query: {
-    bookCount: () => books.length,
-    authorCount: () => authors.length,
+    bookCount: () => Book.estimatedDocumentCount(),
+    authorCount: () => Author.estimatedDocumentCount(),
     allBooks: (root, args) => {
-      let filter = books
-      if (args.author) {
-        filter = filter.filter((book) => book.author === args.author)
-      }
+      // if (args.author) {
+      //   return Book.find({ author: { $in: args.author } }).populate("author", {
+      //     name: 1,
+      //   })
+      // }
 
       if (args.genre) {
-        filter = filter.filter((book) => book.genres.includes(args.genre))
+        return Book.find({ genres: { $in: [args.genre] } }).populate("author", {
+          name: 1,
+        })
       }
 
-      return filter
+      return Book.find().populate("author", { name: 1 })
     },
-    allAuthors: () =>
-      authors.map((author) => {
-        console.log(author)
-        return {
-          name: author.name,
-          books: books.filter((book) => book.author === author.name),
-          bookCount: books.filter((book) => book.author === author.name).length,
-          born: author.born,
-        }
-      }),
+    allAuthors: () => Author.find({}),
+    me: (root, args, context) => {
+      return context.currentUser
+    },
   },
   Mutation: {
-    addBook: (root, args) => {
-      const newBook = { ...args, id: uuid() }
-      books = books.concat(newBook)
+    addBook: async (root, args, context) => {
+      const currentUser = context.currentUser
 
-      console.log(
-        authors.findIndex((author) => author.name === args.author) === -1
+      if (!currentUser) {
+        throw new AuthenticationError("not authenticated")
+      }
+
+      const author = await Author.findOneAndUpdate(
+        { name: args.author },
+        { name: args.author, $inc: { bookCount: 1 } },
+        { upsert: true, new: true }
       )
-      if (authors.findIndex((author) => author.name === args.author) === -1) {
-        authors = authors.concat({ name: args.author, id: uuid() })
-      }
 
-      return newBook
+      const book = new Book({
+        title: args.title,
+        author: author,
+        published: args.published,
+        genres: args.genres,
+      })
+      try {
+        await book.save()
+      } catch (error) {
+        throw new UserInputError(error.message, {
+          invalidArgs: args,
+        })
+      }
+      return book
     },
-    editAuthor: (root, args) => {
-      const author = authors.find((author) => author.name === args.name)
+    editAuthor: async (root, args, context) => {
+      const currentUser = context.currentUser
 
-      if (!author) {
-        return null
+      if (!currentUser) {
+        throw new AuthenticationError("not authenticated")
       }
 
-      console.log({ ...author, born: args.setBornTo })
-      authors = authors
-        .filter((author) => author.name !== args.name)
-        .concat({ ...author, born: args.setBornTo })
-      console.log(authors)
-      return { ...author, born: args.setBornTo }
+      const author = await Author.findOneAndUpdate(
+        { name: args.name },
+        { born: args.setBornTo },
+        { new: true }
+      )
+      return author
+    },
+    createUser: (root, args) => {
+      const user = new User({
+        username: args.username,
+        favoriteGenre: args.favoriteGenre,
+      })
+
+      return user.save().catch((error) => {
+        throw new UserInputError(error.message, {
+          invalidArgs: args,
+        })
+      })
+    },
+    login: async (root, args, context) => {
+      const user = await User.findOne({ username: args.username })
+
+      if (!user || args.password !== "passw") {
+        throw new UserInputError("wrong credentials")
+      }
+
+      const userForToken = {
+        username: user.username,
+        id: user._id,
+      }
+      return { value: jwt.sign(userForToken, JWT_SECRET) }
     },
   },
 }
@@ -181,6 +170,16 @@ const resolvers = {
 const server = new ApolloServer({
   typeDefs,
   resolvers,
+  context: async ({ req }) => {
+    const auth = req ? req.headers.authorization : null
+    console.log(auth)
+    if (auth && auth.toLowerCase().startsWith("bearer ")) {
+      const decodedToken = jwt.verify(auth.substring(7), JWT_SECRET)
+      const currentUser = await User.findById(decodedToken.id)
+      console.log(currentUser)
+      return { currentUser }
+    }
+  },
 })
 
 server.listen().then(({ url }) => {
