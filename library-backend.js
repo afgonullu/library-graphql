@@ -99,6 +99,7 @@ const resolvers = {
   Mutation: {
     addBook: async (root, args, context) => {
       const currentUser = context.currentUser
+      console.log(args)
 
       if (!currentUser) {
         throw new AuthenticationError("not authenticated")
