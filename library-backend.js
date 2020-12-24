@@ -89,7 +89,7 @@ const resolvers = {
         })
       }
 
-      return Book.find().populate("author", { name: 1 })
+      return Book.find({}).populate("author", { name: 1 })
     },
     allAuthors: () => Author.find({}),
     me: (root, args, context) => {
